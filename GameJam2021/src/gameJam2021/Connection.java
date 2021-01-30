@@ -31,7 +31,7 @@ public class Connection
         myGame = GameJam2021.games.get(0);
         shipId = myGame.playerJoined(this);
 	}
-	final byte[] ID_TO_LENGTH = new byte[] {1, 5, 13};
+	final byte[] ID_TO_LENGTH = new byte[] {1, 5, 16};
 	boolean waitingForMessageId = true;
 	byte[] messageData = null;
 	int messageIndex = 0;
@@ -92,9 +92,9 @@ public class Connection
 		ByteBuffer bb = ByteBuffer.wrap(new byte[14]).order(ByteOrder.LITTLE_ENDIAN);
 		bb.put((byte)2);//message id
 		bb.put((byte)id);//ship id
-		bb.putFloat(s.x);
-		bb.putFloat(s.y);
-		bb.putFloat(s.rot);
+		bb.putInt(intify(s.x));
+		bb.putInt(intify(s.y));
+		bb.putInt(intify(s.rot));
 		send(bb.array());
 	}
 	void sendPlayerJoined(int id)
@@ -113,20 +113,15 @@ public class Connection
 			e.printStackTrace();
 		}
 	}
-	float getFloat(byte[] theArray, int start)
+	int getInt(byte[] theArray, int start)
 	{
 		ByteBuffer bb = ByteBuffer.wrap(theArray).order(ByteOrder.LITTLE_ENDIAN);
 		bb.position(start);
-		float f = bb.getFloat();
-		return f;
+		return bb.getInt();
 	}
 	String print(byte b)
 	{
-		if(b<0)
-		{
-			return String.format("0x%02X", Math.abs(b) + 127);
-		}
-		return String.format("0x%02X", b);
+		return String.format("%02X", b);
 	}
 	void parse()
 	{
@@ -160,12 +155,32 @@ public class Connection
 		}
 		else if(messageData[0]==2)//movement
 		{
-			float xPos = getFloat(messageData, 1);
-			float yPos = getFloat(messageData, 5);
-			System.out.println(print(messageData[5]) + "\t" + print(messageData[6]) + "\t" + print(messageData[7]) + "\t" + print(messageData[8]));
-			float rot = getFloat(messageData, 9);
+			float xPos = floatify(IntUnMutilation(Arrays.copyOfRange(messageData, 1, 6)));
+			float yPos = floatify(IntUnMutilation(Arrays.copyOfRange(messageData, 6, 11)));
+			System.out.println(print(messageData[9]) + " " + print(messageData[8]) + " " + print(messageData[7]) + " " + print(messageData[6]) + "\t" + yPos);
+			float rot = floatify(IntUnMutilation(Arrays.copyOfRange(messageData, 11, 16)));
 			myGame.setShipPosition(shipId, xPos, yPos, rot);
 //			System.out.println("X: "+xPos+"\t Y: "+yPos+"\t R:"+rot);
 		}
 	}
+	private int intify(float x)
+    {
+		return (int) (1000 * x);
+    }
+	private float floatify(int x) {
+		return ((float) x)/1000;
+	}
+	
+	private int IntUnMutilation(byte[] x)
+	{
+		for (int i = 0; i < 4; i++)
+		{
+			if ((x[4] & (byte)(1 << i)) > 0)
+			{
+				x[i] -= 0x20;
+			}
+		}
+		return getInt(x, 0);
+	}
+	
 }
