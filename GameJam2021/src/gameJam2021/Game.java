@@ -33,12 +33,12 @@ public class Game
 		}
 		return potentialId;
 	}
-	HashMap<Integer, Ship> ships = new HashMap<Integer, Ship>();
+	HashMap<Byte, Ship> ships = new HashMap<Byte, Ship>();
 	String id;
-	int nextShipId = 0;
+	byte nextShipId = 0;
 	public Game()
 	{
-		id = generateId();
+		id = "AAAA";//generateId();
 	}
 	class Ship
 	{
@@ -52,10 +52,10 @@ public class Game
 			this.rot = rot;
 		}
 	}
-	int playerJoined(Connection con)
+	byte playerJoined(Connection con)
 	{
-		int id = nextShipId++;
-		for(Entry<Integer, Ship> shipEntry : ships.entrySet())
+		byte id = nextShipId++;
+		for(Entry<Byte, Ship> shipEntry : ships.entrySet())
 		{
 			con.sendPlayerJoined(shipEntry.getKey());
 		}
@@ -67,8 +67,35 @@ public class Game
 		connections.add(con);
 		return id;
 	}
-	void setShipPosition(int shipId, float xPos, float yPos, float rot)
+	void setShipPosition(byte shipId, float xPos, float yPos, float rot)
 	{
 		ships.get(shipId).setPos(xPos, yPos, rot);
+	}
+	void broadCast(byte[] bytes)
+	{
+		for(int i = 0; i < connections.size(); i++)
+		{
+			connections.get(i).send(bytes);
+		}
+	}
+	void broadCast(byte[] bytes, Connection toIgnore)
+	{
+		for(int i = 0; i < connections.size(); i++)
+		{
+			if(!connections.get(i).equals(toIgnore))
+			{
+				connections.get(i).send(bytes);
+			}
+		}
+	}
+	void playerDisconnected(Connection con)
+	{
+		Ship s = ships.remove(con.shipId);
+		if(s!=null)
+		{
+			Connection.playerDisconnectedMessage[1] = con.shipId;
+			System.out.println("Sending ship destroy: "+con.shipId);
+			broadCast(Connection.playerDisconnectedMessage);
+		}
 	}
 }

@@ -50,6 +50,10 @@ public class GameJam2021
 	        }
 		}
 	}
+	static void removeConnection(Connection con)
+	{
+		connections.remove(con);
+	}
 	static Game createGame()
 	{
 		Game g = new Game();

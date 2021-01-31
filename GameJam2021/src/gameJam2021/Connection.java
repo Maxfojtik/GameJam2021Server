@@ -1,10 +1,9 @@
 package gameJam2021;
 
-import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStream;
-import java.io.InputStreamReader;
 import java.io.OutputStream;
+import java.io.UnsupportedEncodingException;
 import java.net.Socket;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
@@ -17,73 +16,104 @@ import gameJam2021.Game.Ship;
 public class Connection 
 {
 	OutputStream output;
-	BufferedReader input;
+	InputStream input;
 	Socket socket;
-	int shipId;
+	byte shipId;
 	Game myGame;
+	static final byte[] playerDisconnectedMessage = new byte[] {3,0};
 	public Connection(Socket sock) throws IOException
 	{
 		socket = sock;
         output = socket.getOutputStream();
 //        output = new BufferedWriter(new OutputStreamWriter(oStream));
-        InputStream iStream = socket.getInputStream();
-        input = new BufferedReader(new InputStreamReader(iStream));
-        myGame = GameJam2021.games.get(0);
-        shipId = myGame.playerJoined(this);
+        input = socket.getInputStream();
+//        input = new BufferedReader(new InputStreamReader(iStream));
+        lastMessageTime = System.currentTimeMillis();
 	}
-	final byte[] ID_TO_LENGTH = new byte[] {1, 5, 16};
-	boolean waitingForMessageId = true;
-	byte[] messageData = null;
-	int messageIndex = 0;
-	int targetLength = 0;
-	long lastShipSendTime = 0;
-	void logic()
+	boolean closed = false;
+	void disconnect()
 	{
-		try {
-			while(input.ready())
+		if(!closed)
+		{
+			if(myGame!=null)
 			{
-				int code = input.read();
-//				System.out.println(waitingForMessageId+":"+code);
-				if(waitingForMessageId)
+				myGame.connections.remove(this);
+			}
+			try {
+				input.close();
+				output.close();
+				socket.close();
+				closed = true;
+			} catch (IOException e) {
+				System.err.println("Can't close connection");
+			}
+			GameJam2021.removeConnection(this);
+			System.out.println(this.socket.getInetAddress()+" disconnected");
+		}
+		if(myGame!=null)
+		{
+			myGame.playerDisconnected(this);
+		}
+	}
+	byte[] TYPE_TO_LENGTH = new byte[] {1, 5, 13, 1, 1, 9};
+	byte[] multiMessageData = null;
+	long lastShipSendTime = 0;
+	void logic() throws IOException
+	{
+		if(System.currentTimeMillis()-lastMessageTime>1000)
+		{
+			disconnect();
+		}
+		if(!closed)
+		{
+//			System.out.println(socket.isClosed());
+			try {
+				while(input.available()>0)
 				{
-					byte messageId = (byte)code;
-					messageData = new byte[ID_TO_LENGTH[messageId]];
-					messageData[0] = messageId;
-					messageIndex = 1;
-					waitingForMessageId = false;
-				}
-				else
-				{
-					messageData[messageIndex] = (byte)code;
-					messageIndex++;
-					if(messageIndex==messageData.length)
+					byte[] rawData = new byte[1024];
+					int numRead = input.read(rawData);
+					multiMessageData = new byte[numRead];
+					System.arraycopy(rawData, 0, multiMessageData, 0, numRead);
+					int index = 0;
+					while(index!=multiMessageData.length)
 					{
-						waitingForMessageId = true;
-						parse();
+						int messageLength = TYPE_TO_LENGTH[multiMessageData[index]];
+						byte[] messageData = new byte[messageLength];
+						System.arraycopy(multiMessageData, index, messageData, 0, messageLength);
+						parse(messageData);
+						index += messageLength;
 					}
 				}
+				if(System.currentTimeMillis()-lastShipSendTime>16)
+				{
+					lastShipSendTime = System.currentTimeMillis();
+					sendEnemies();
+				}
+				
+			} catch (IOException e) {
+				// TODO Auto-generated catch block
+				disconnect();
+//				e.printStackTrace();
 			}
-			if(System.currentTimeMillis()-lastShipSendTime>16)
-			{
-				lastShipSendTime = System.currentTimeMillis();
-				sendEnemies();
-			}
-			
-		} catch (IOException e) {
-			// TODO Auto-generated catch block
-			e.printStackTrace();
+		}
+		else
+		{
+			System.out.println("SOCKET CLOSED BUT IM STILL HERE");
 		}
 	}
 	void sendEnemies()
 	{
-		Collection<Entry<Integer, Ship>> ships = myGame.ships.entrySet();
-		for(Entry<Integer, Ship> shipEntry : ships)
+		if(myGame!=null)
 		{
-			Ship s = shipEntry.getValue();
-			if(shipEntry.getKey()!=shipId)
+			Collection<Entry<Byte, Ship>> ships = myGame.ships.entrySet();
+			for(Entry<Byte, Ship> shipEntry : ships)
 			{
-//				System.out.println("sending "+shipEntry.getKey()+" to "+shipId);
-				sendShip(shipEntry.getKey(), s);
+				Ship s = shipEntry.getValue();
+				if(shipEntry.getKey()!=shipId)
+				{
+//					System.out.println("sending "+shipEntry.getKey()+" to "+shipId);
+					sendShip(shipEntry.getKey(), s);
+				}
 			}
 		}
 	}
@@ -92,9 +122,9 @@ public class Connection
 		ByteBuffer bb = ByteBuffer.wrap(new byte[14]).order(ByteOrder.LITTLE_ENDIAN);
 		bb.put((byte)2);//message id
 		bb.put((byte)id);//ship id
-		bb.putInt(intify(s.x));
-		bb.putInt(intify(s.y));
-		bb.putInt(intify(s.rot));
+		bb.putFloat(s.x);
+		bb.putFloat(s.y);
+		bb.putFloat(s.rot);
 		send(bb.array());
 	}
 	void sendPlayerJoined(int id)
@@ -113,18 +143,24 @@ public class Connection
 			e.printStackTrace();
 		}
 	}
-	int getInt(byte[] theArray, int start)
+	float getFloat(byte[] theArray, int start)
 	{
 		ByteBuffer bb = ByteBuffer.wrap(theArray).order(ByteOrder.LITTLE_ENDIAN);
 		bb.position(start);
-		return bb.getInt();
+		return bb.getFloat();
 	}
 	String print(byte b)
 	{
 		return String.format("%02X", b);
 	}
-	void parse()
+	long lastMessageTime = 0;
+	void parse(byte[] messageData) throws UnsupportedEncodingException
 	{
+		if(messageData[0]!=2 && messageData[0]!=4)
+		{
+			//System.out.println(messageData[0]);
+		}
+		lastMessageTime = System.currentTimeMillis();
 		if(messageData[0]==0)//create game message
 		{
 			Game g = GameJam2021.createGame();
@@ -135,18 +171,24 @@ public class Connection
 		}
 		else if(messageData[0]==1)//join game message
 		{
-			byte[] gameAsBytes = Arrays.copyOfRange(messageData, 1, 4);
-			String gameId = new String(gameAsBytes);
+			byte[] gameAsBytes = Arrays.copyOfRange(messageData, 1, 5);
+			String gameId = new String(gameAsBytes, "ASCII");
 			Game g = GameJam2021.getGame(gameId);
 			if(g!=null)
 			{
-				ByteBuffer buff = ByteBuffer.wrap(new byte[5]);
-				buff.put((byte)0);
-				buff.put(g.id.getBytes());
+				myGame = g;
+				System.out.println("Connected to game "+g.id);
+				ByteBuffer buff = ByteBuffer.wrap(new byte[1]);
+				buff.put((byte)4);
 				send(buff.array());
+		        shipId = g.playerJoined(this);
+//				buff.put((byte)0);
+//				buff.put(g.id.getBytes());
+//				send(buff.array());
 			}
 			else
 			{
+				System.out.println("Tried and failed\t"+gameId);
 				ByteBuffer buff = ByteBuffer.wrap(new byte[5]);
 				buff.put((byte)0);
 				buff.put("0000".getBytes());
@@ -155,32 +197,25 @@ public class Connection
 		}
 		else if(messageData[0]==2)//movement
 		{
-			float xPos = floatify(IntUnMutilation(Arrays.copyOfRange(messageData, 1, 6)));
-			float yPos = floatify(IntUnMutilation(Arrays.copyOfRange(messageData, 6, 11)));
-			System.out.println(print(messageData[9]) + " " + print(messageData[8]) + " " + print(messageData[7]) + " " + print(messageData[6]) + "\t" + yPos);
-			float rot = floatify(IntUnMutilation(Arrays.copyOfRange(messageData, 11, 16)));
+			float xPos = getFloat(messageData, 1);
+			float yPos = getFloat(messageData, 5);
+			float rot = getFloat(messageData, 9);
 			myGame.setShipPosition(shipId, xPos, yPos, rot);
 //			System.out.println("X: "+xPos+"\t Y: "+yPos+"\t R:"+rot);
 		}
-	}
-	private int intify(float x)
-    {
-		return (int) (1000 * x);
-    }
-	private float floatify(int x) {
-		return ((float) x)/1000;
-	}
-	
-	private int IntUnMutilation(byte[] x)
-	{
-		for (int i = 0; i < 4; i++)
+		else if(messageData[0]==3)//game closed
 		{
-			if ((x[4] & (byte)(1 << i)) > 0)
-			{
-				x[i] -= 0x20;
-			}
+			disconnect();
 		}
-		return getInt(x, 0);
+		else if(messageData[0]==5)//explosion
+		{
+			float xPos = getFloat(messageData, 1);
+			float yPos = getFloat(messageData, 5);
+			ByteBuffer buff = ByteBuffer.wrap(new byte[9]).order(ByteOrder.LITTLE_ENDIAN);
+			buff.put((byte)5);
+			buff.putFloat(xPos);
+			buff.putFloat(yPos);
+			myGame.broadCast(buff.array(), this);
+		}
 	}
-	
 }
