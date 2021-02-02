@@ -55,13 +55,14 @@ public class Connection
 			myGame.playerDisconnected(this);
 		}
 	}
-	byte[] TYPE_TO_LENGTH = new byte[] {1, 5, 13, 1, 1, 9};
+	byte[] TYPE_TO_LENGTH = new byte[] {1, 5, 13, 1, 1, 9, 1, 9, 1, 9};
 	byte[] multiMessageData = null;
 	long lastShipSendTime = 0;
 	void logic() throws IOException
 	{
-		if(System.currentTimeMillis()-lastMessageTime>1000)
+		if(System.currentTimeMillis()-lastMessageTime>4000)
 		{
+			System.out.println("Disconnecting by inactivity");
 			disconnect();
 		}
 		if(!closed)
@@ -178,8 +179,9 @@ public class Connection
 			{
 				myGame = g;
 				System.out.println("Connected to game "+g.id);
-				ByteBuffer buff = ByteBuffer.wrap(new byte[1]);
+				ByteBuffer buff = ByteBuffer.wrap(new byte[2]);
 				buff.put((byte)4);
+				buff.put(shipId);
 				send(buff.array());
 		        shipId = g.playerJoined(this);
 //				buff.put((byte)0);
@@ -215,6 +217,37 @@ public class Connection
 			buff.put((byte)5);
 			buff.putFloat(xPos);
 			buff.putFloat(yPos);
+			myGame.broadCast(buff.array(), this);
+		}
+		else if(messageData[0]==6)//died
+		{
+			System.out.println("Died");
+			myGame.playerDisconnected(this);
+		}
+		else if(messageData[0]==7)//explosion
+		{
+			float xPos = getFloat(messageData, 1);
+			float yPos = getFloat(messageData, 5);
+			ByteBuffer buff = ByteBuffer.wrap(new byte[9]).order(ByteOrder.LITTLE_ENDIAN);
+			buff.put((byte)7);
+			buff.putFloat(xPos);
+			buff.putFloat(yPos);
+//			System.out.println("Ship Explosion");
+			myGame.broadCast(buff.array(), this);
+		}
+		else if(messageData[0]==8)//respawn
+		{
+			
+		}
+		else if(messageData[0]==9)//respawn
+		{
+			float xPos = getFloat(messageData, 1);
+			float yPos = getFloat(messageData, 5);
+			ByteBuffer buff = ByteBuffer.wrap(new byte[9]).order(ByteOrder.LITTLE_ENDIAN);
+			buff.put((byte)8);
+			buff.putFloat(xPos);
+			buff.putFloat(yPos);
+			//System.out.println("Enemy Ping");
 			myGame.broadCast(buff.array(), this);
 		}
 	}

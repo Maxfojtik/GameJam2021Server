@@ -67,6 +67,23 @@ public class Game
 		connections.add(con);
 		return id;
 	}
+	byte playerRespawned(Connection con)
+	{
+		byte id = nextShipId++;
+		for(Entry<Byte, Ship> shipEntry : ships.entrySet())
+		{
+			con.sendPlayerJoined(shipEntry.getKey());
+		}
+		ships.put(id, new Ship());
+		for(int i = 0; i < connections.size(); i++)
+		{
+			if(!connections.get(i).equals(con))
+			{
+				connections.get(i).sendPlayerJoined(id);
+			}
+		}
+		return id;
+	}
 	void setShipPosition(byte shipId, float xPos, float yPos, float rot)
 	{
 		ships.get(shipId).setPos(xPos, yPos, rot);
