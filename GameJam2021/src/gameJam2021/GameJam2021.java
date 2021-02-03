@@ -15,6 +15,7 @@ public class GameJam2021
 		games.add(new Game());
         ConnectionListener cn = new ConnectionListener();
         new Thread(cn).start();
+        long lastPingsPrint = 0;
         while(true)
         {
         	for(int i = 0; i < connections.size(); i++)
@@ -25,6 +26,15 @@ public class GameJam2021
         		}
         		catch(Exception e)
         		{e.printStackTrace();}
+        	}
+        	if(System.currentTimeMillis()-lastPingsPrint>1000 && connections.size()>0)
+        	{
+        		lastPingsPrint = System.currentTimeMillis();
+        		System.out.println("Pings:");
+            	for(int i = 0; i < connections.size(); i++)
+            	{
+            		System.out.println(connections.get(i).socket.getInetAddress()+"\t"+connections.get(i).roundTripPing);
+            	}
         	}
         	Thread.sleep(1);
         }

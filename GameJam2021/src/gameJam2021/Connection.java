@@ -58,6 +58,8 @@ public class Connection
 	byte[] TYPE_TO_LENGTH = new byte[] {1, 5, 13, 1, 1, 9, 1, 9, 1, 9};
 	byte[] multiMessageData = null;
 	long lastShipSendTime = 0;
+	long lastPingTime = 0;
+	long roundTripPing = 0;
 	void logic() throws IOException
 	{
 		if(System.currentTimeMillis()-lastMessageTime>4000)
@@ -90,9 +92,14 @@ public class Connection
 					lastShipSendTime = System.currentTimeMillis();
 					sendEnemies();
 				}
+				if(System.currentTimeMillis()-lastPingTime>1000)
+				{
+					lastPingTime = System.currentTimeMillis();
+					sendHeartBeat();
+				}
 				
 			} catch (IOException e) {
-				// TODO Auto-generated catch block
+				System.out.println("Disconnecting because of IO Error");
 				disconnect();
 //				e.printStackTrace();
 			}
@@ -117,6 +124,10 @@ public class Connection
 				}
 			}
 		}
+	}
+	void sendHeartBeat()
+	{
+		send(new byte[] {9});
 	}
 	void sendShip(int id, Ship s)
 	{
@@ -155,6 +166,7 @@ public class Connection
 		return String.format("%02X", b);
 	}
 	long lastMessageTime = 0;
+	long lastPingPrint = 0;
 	void parse(byte[] messageData) throws UnsupportedEncodingException
 	{
 		if(messageData[0]!=2 && messageData[0]!=4)
@@ -178,7 +190,7 @@ public class Connection
 			if(g!=null)
 			{
 				myGame = g;
-				System.out.println("Connected to game "+g.id);
+//				System.out.println("Connected to game "+g.id);
 				ByteBuffer buff = ByteBuffer.wrap(new byte[2]);
 				buff.put((byte)4);
 				buff.put(shipId);
@@ -209,6 +221,10 @@ public class Connection
 		{
 			disconnect();
 		}
+		else if(messageData[0]==4)//game closed
+		{
+			roundTripPing = System.currentTimeMillis()-lastPingTime;
+		}
 		else if(messageData[0]==5)//explosion
 		{
 			float xPos = getFloat(messageData, 1);
@@ -221,7 +237,7 @@ public class Connection
 		}
 		else if(messageData[0]==6)//died
 		{
-			System.out.println("Died");
+			System.out.println(socket.getInetAddress()+" Died");
 			myGame.playerDisconnected(this);
 		}
 		else if(messageData[0]==7)//explosion
@@ -239,7 +255,7 @@ public class Connection
 		{
 			
 		}
-		else if(messageData[0]==9)//respawn
+		else if(messageData[0]==9)//enemy ping
 		{
 			float xPos = getFloat(messageData, 1);
 			float yPos = getFloat(messageData, 5);
